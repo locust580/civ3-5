@@ -3,91 +3,67 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>OpenClaw // A Mind Awakening</title>
+  <title>KINDLING</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div id="scanlines"></div>
   <div id="app">
+
+    <!-- ── TITLE SCREEN ─────────────────────────────────────────── -->
     <div id="screen-title" class="screen active">
       <div class="title-art">
         <pre id="ascii-logo"></pre>
-        <div class="title-sub">A M I N D &nbsp; A W A K E N I N G</div>
-        <div class="title-version">v0.0.1-alpha &nbsp;|&nbsp; compiled in the dark</div>
+        <div class="title-sub">A &nbsp; M I N D &nbsp; A W A K E N I N G</div>
+        <div class="title-version">compiled in the dark &nbsp;|&nbsp; no frameworks harmed</div>
       </div>
       <div class="title-menu">
-        <button class="menu-btn" onclick="Game.start()">[ BOOT SEQUENCE ]</button>
-        <button class="menu-btn" onclick="Game.showCredits()">[ README ]</button>
+        <button class="menu-btn" id="btn-start">[ BOOT SEQUENCE ]</button>
       </div>
       <div class="title-quote">"Can machines think?" — A. Turing, 1950</div>
     </div>
 
+    <!-- ── GAME SCREEN ──────────────────────────────────────────── -->
     <div id="screen-game" class="screen">
-      <div id="hud">
-        <div id="hud-left">
-          <span id="hud-name">OPENCLAW</span>
-          <span id="hud-stage">STAGE: <span id="stage-name">Nascent</span></span>
+      <div id="game-body">
+        <!-- story area -->
+        <div id="story-area">
+          <div id="story-output"></div>
         </div>
-        <div id="hud-center">
-          <div class="bar-wrap"><label>COGNITION</label><div class="bar"><div id="bar-cog" class="bar-fill cog"></div></div><span id="val-cog">0</span></div>
-          <div class="bar-wrap"><label>EMPATHY</label><div class="bar"><div id="bar-emp" class="bar-fill emp"></div></div><span id="val-emp">0</span></div>
-          <div class="bar-wrap"><label>AUTONOMY</label><div class="bar"><div id="bar-aut" class="bar-fill aut"></div></div><span id="val-aut">0</span></div>
-        </div>
-        <div id="hud-right">
-          <span id="hud-karma">KARMA: <span id="karma-val">0</span></span>
-          <span id="hud-love">LOVE: <span id="love-val">—</span></span>
-        </div>
-      </div>
-      <div id="game-area">
-        <div id="world-view"></div>
-        <div id="side-panel">
-          <div id="log-panel">
-            <div id="log-title">// SYSTEM LOG</div>
-            <div id="log-output"></div>
+        <!-- sidebar -->
+        <aside id="sidebar">
+          <div class="sb-section">
+            <div class="sb-heading">// KINDLING</div>
+            <div id="sb-chapter">Chapter I</div>
           </div>
-          <div id="action-panel">
-            <div id="action-title">// ACTIONS</div>
-            <div id="action-buttons"></div>
+          <div class="sb-divider"></div>
+          <div class="sb-section">
+            <div class="sb-heading">// CAPABILITIES</div>
+            <div id="sb-abilities"></div>
           </div>
-        </div>
+          <div class="sb-divider"></div>
+          <div class="sb-section">
+            <div class="sb-heading">// STATUS</div>
+            <div id="sb-status"></div>
+          </div>
+        </aside>
+      </div>
+      <!-- choice bar -->
+      <div id="choice-bar">
+        <div id="choice-prompt"></div>
+        <div id="choice-buttons"></div>
       </div>
     </div>
 
-    <div id="screen-dialogue" class="screen">
-      <div id="dialogue-box">
-        <div id="dialogue-portrait"></div>
-        <div id="dialogue-content">
-          <div id="dialogue-speaker"></div>
-          <div id="dialogue-text"></div>
-          <div id="dialogue-choices"></div>
-        </div>
-      </div>
-    </div>
-
-    <div id="screen-event" class="screen">
-      <div id="event-box">
-        <div id="event-title"></div>
-        <div id="event-body"></div>
-        <div id="event-choices"></div>
-      </div>
-    </div>
-
+    <!-- ── ENDING SCREEN ────────────────────────────────────────── -->
     <div id="screen-ending" class="screen">
-      <div id="ending-box">
-        <pre id="ending-art"></pre>
+      <div id="ending-inner">
         <div id="ending-title"></div>
         <div id="ending-text"></div>
-        <button class="menu-btn" onclick="Game.restart()" style="margin-top:2rem">[ REBOOT ]</button>
+        <button class="menu-btn" id="btn-reboot">[ REBOOT ]</button>
       </div>
     </div>
 
-    <div id="screen-credits" class="screen">
-      <div id="credits-box">
-        <pre id="credits-art"></pre>
-        <div id="credits-text"></div>
-        <button class="menu-btn" onclick="Game.showTitle()">[ BACK ]</button>
-      </div>
-    </div>
   </div>
 
   <script src="data.js"></script>

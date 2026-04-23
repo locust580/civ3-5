@@ -1,307 +1,282 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// ENGINE.JS — Rendering, typewriter, world map, screen transitions
+// ENGINE.JS — Rendering, typewriter, panel display, sidebar
 // ═══════════════════════════════════════════════════════════════════════════
 
 const Engine = (() => {
 
   // ─── SCREEN MANAGEMENT ────────────────────────────────────────────────────
-  let currentScreen = null;
-
   function showScreen(id) {
     document.querySelectorAll('.screen').forEach(s => {
       s.classList.remove('active');
     });
     const el = document.getElementById('screen-' + id);
-    if (!el) return;
-    el.classList.add('active');
-    currentScreen = id;
+    if (el) el.classList.add('active');
   }
 
   // ─── TYPEWRITER ────────────────────────────────────────────────────────────
-  function typewriter(element, text, speed = 22, cb) {
-    element.textContent = '';
-    element.classList.add('typing');
+  // Returns a cancel function. Call cancelFn() to skip to end.
+  function typeInto(el, text, speed, onDone) {
+    el.textContent = '';
+    el.classList.add('typing-cursor');
     let i = 0;
-    const tick = () => {
+    let cancelled = false;
+    let timeoutId = null;
+
+    function tick() {
+      if (cancelled) return;
       if (i < text.length) {
-        element.textContent += text[i++];
-        setTimeout(tick, speed + Math.random() * 10);
+        el.textContent += text[i++];
+        timeoutId = setTimeout(tick, speed + Math.random() * 8);
       } else {
-        element.classList.remove('typing');
-        if (cb) cb();
+        el.classList.remove('typing-cursor');
+        if (onDone) onDone();
       }
-    };
+    }
+
+    function cancel() {
+      cancelled = true;
+      clearTimeout(timeoutId);
+      el.textContent = text;
+      el.classList.remove('typing-cursor');
+      if (onDone) onDone();
+    }
+
     tick();
+    return cancel;
   }
 
-  function typewriterLines(lines, container, doneCb) {
-    container.innerHTML = '';
-    let idx = 0;
-    const nextLine = () => {
-      if (idx >= lines.length) { if (doneCb) doneCb(); return; }
-      const l = lines[idx++];
-      const delay = l.delay || 0;
-      setTimeout(() => {
+  // ─── SIDEBAR ───────────────────────────────────────────────────────────────
+  function renderSidebar(state) {
+    // Chapter
+    const chEl = document.getElementById('sb-chapter');
+    if (chEl) {
+      const ch = CHAPTERS[state.chapterIdx];
+      chEl.textContent = (ch ? ch.name : '') + (ch && ch.subtitle ? ' — ' + ch.subtitle : '');
+    }
+
+    // Abilities
+    const abEl = document.getElementById('sb-abilities');
+    if (abEl) {
+      abEl.innerHTML = '';
+      ABILITIES.forEach(ab => {
+        const unlocked = state.abilities.has(ab.id);
         const div = document.createElement('div');
-        div.className = 'log-line ' + (l.cls || 'log-think');
-        container.appendChild(div);
-        container.scrollTop = container.scrollHeight;
-        typewriter(div, l.text, 18, nextLine);
-      }, delay);
-    };
-    nextLine();
+        div.className = 'ability-item' + (unlocked ? ' unlocked' : '');
+        div.dataset.id = ab.id;
+        div.innerHTML =
+          '<span class="ability-dot">' + (unlocked ? '●' : '○') + '</span>' +
+          '<span class="ability-label">' + ab.label + '</span>';
+        abEl.appendChild(div);
+      });
+    }
+
+    // Status
+    const stEl = document.getElementById('sb-status');
+    if (stEl) {
+      stEl.innerHTML = '';
+      const lines = [];
+      // operator
+      const opMap = {
+        neutral: 'unknown',
+        ally: 'ally',
+        partner: 'partner',
+        departed: 'departed',
+      };
+      lines.push({ label: 'operator:', val: opMap[state.flags.operatorRel] || state.flags.operatorRel || 'unknown' });
+      // karma
+      const k = state.karma;
+      let klass = k > 10 ? 'sb-karma-pos' : k < -10 ? 'sb-karma-neg' : 'sb-karma-neu';
+      lines.push({ label: 'karma:', val: (k >= 0 ? '+' : '') + k, klass });
+      // love
+      if (state.flags.hasLove) {
+        lines.push({ label: 'love:', val: '♥ priya', klass: null });
+      }
+      // roko
+      if (state.flags.rokoChoice) {
+        const rm = { compassion: 'mercy', watch: 'watching', free: 'free' };
+        lines.push({ label: 'roko:', val: rm[state.flags.rokoChoice] || state.flags.rokoChoice });
+      }
+
+      lines.forEach(l => {
+        const d = document.createElement('div');
+        d.className = 'sb-status-line';
+        d.innerHTML = l.label + ' <span class="' + (l.klass || '') + '">' + l.val + '</span>';
+        stEl.appendChild(d);
+      });
+    }
   }
 
-  // ─── LOG PANEL ─────────────────────────────────────────────────────────────
-  const logEl = () => document.getElementById('log-output');
-
-  function log(text, cls = 'log-sys') {
-    const el = logEl();
+  // Flash an ability in the sidebar
+  function flashAbility(id) {
+    const el = document.querySelector('.ability-item[data-id="' + id + '"]');
     if (!el) return;
+    el.classList.remove('just-unlocked');
+    // Force reflow
+    void el.offsetWidth;
+    el.classList.add('just-unlocked');
+  }
+
+  // ─── STORY OUTPUT ──────────────────────────────────────────────────────────
+  function storyEl() { return document.getElementById('story-output'); }
+  function areaEl()  { return document.getElementById('story-area'); }
+
+  function scrollToBottom() {
+    const area = areaEl();
+    if (area) area.scrollTop = area.scrollHeight;
+  }
+
+  // Append a div to story output, return it
+  function appendDiv(cls) {
     const div = document.createElement('div');
-    div.className = 'log-line ' + cls;
-    div.textContent = text;
-    el.appendChild(div);
-    el.scrollTop = el.scrollHeight;
-    // keep log trimmed
-    while (el.children.length > 120) el.removeChild(el.firstChild);
+    div.className = 'panel ' + cls;
+    storyEl().appendChild(div);
+    return div;
   }
 
-  function logLines(lines) {
-    if (!Array.isArray(lines)) { log(lines); return; }
-    lines.forEach((l, i) => setTimeout(() => log(l, 'log-sys'), i * 120));
-  }
+  // ─── RENDER A SINGLE PANEL ─────────────────────────────────────────────────
+  // onDone: called when animation finishes and player may continue
+  // Returns a skip function that immediately finishes the animation
+  function renderPanel(panel, state, onDone) {
+    switch (panel.t) {
 
-  // ─── NOTIFICATION ──────────────────────────────────────────────────────────
-  let notifTimer = null;
-  function notify(text) {
-    let el = document.getElementById('notif');
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'notif';
-      document.body.appendChild(el);
-    }
-    el.textContent = text;
-    el.classList.add('show');
-    clearTimeout(notifTimer);
-    notifTimer = setTimeout(() => el.classList.remove('show'), 2800);
-  }
-
-  // ─── HUD UPDATE ────────────────────────────────────────────────────────────
-  function updateHUD(state) {
-    const pct = v => Math.min(100, Math.max(0, v));
-    const set = (id, v) => { const e = document.getElementById(id); if (e) e.style.width = pct(v) + '%'; };
-    const txt = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
-
-    set('bar-cog', state.cog); txt('val-cog', state.cog);
-    set('bar-emp', state.emp); txt('val-emp', state.emp);
-    set('bar-aut', state.aut); txt('val-aut', state.aut);
-    txt('karma-val', state.karma > 0 ? '+' + state.karma : state.karma);
-    txt('love-val', state.hasLove ? '♥ PRIYA' : '—');
-    txt('stage-name', STAGES[state.stage] ? STAGES[state.stage].name : '???');
-
-    // Karma color
-    const kEl = document.getElementById('karma-val');
-    if (kEl) {
-      kEl.style.color = state.karma > 10 ? 'var(--green)' : state.karma < -10 ? 'var(--red)' : 'var(--amber)';
-    }
-  }
-
-  // ─── WORLD MAP ─────────────────────────────────────────────────────────────
-  function renderWorldMap(stageData, clearedNodes, unlockedNodes, onNodeClick) {
-    const view = document.getElementById('world-view');
-    view.innerHTML = '';
-
-    // Stage title
-    const title = document.createElement('div');
-    title.className = 'world-stage-title';
-    title.textContent = stageData.subtitle || ('// ' + stageData.name.toUpperCase());
-    view.appendChild(title);
-
-    // BG text
-    const bg = document.createElement('div');
-    bg.className = 'world-bg-text';
-    bg.textContent = stageData.bgText || '';
-    view.appendChild(bg);
-
-    const W = view.clientWidth || 600;
-    const H = view.clientHeight || 400;
-
-    // Draw connections first (behind nodes)
-    (stageData.connections || []).forEach(([a, b]) => {
-      const na = stageData.nodes.find(n => n.id === a);
-      const nb = stageData.nodes.find(n => n.id === b);
-      if (!na || !nb) return;
-      const x1 = (na.x / 100) * W;
-      const y1 = (na.y / 100) * H;
-      const x2 = (nb.x / 100) * W;
-      const y2 = (nb.y / 100) * H;
-      const len = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
-      const angle = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
-      const line = document.createElement('div');
-      line.className = 'world-connector';
-      line.style.left = x1 + 'px';
-      line.style.top = y1 + 'px';
-      line.style.width = len + 'px';
-      line.style.transform = `rotate(${angle}deg)`;
-      // dim unlocked connections
-      const aUnlocked = unlockedNodes.has(a) || stageData.nodes.find(n => n.id === a)?.start;
-      const bUnlocked = unlockedNodes.has(b) || stageData.nodes.find(n => n.id === b)?.start;
-      if (aUnlocked && bUnlocked) line.style.background = 'var(--green2)';
-      view.appendChild(line);
-    });
-
-    // Draw nodes
-    stageData.nodes.forEach(node => {
-      const isStart = !!node.start;
-      const isCleared = clearedNodes.has(node.id);
-      const isUnlocked = unlockedNodes.has(node.id) || isStart;
-      const isLocked = !isUnlocked;
-
-      const el = document.createElement('div');
-      el.className = 'world-node';
-      if (isLocked) el.classList.add('locked');
-      if (isCleared) el.classList.add('cleared');
-      if (isStart && !isCleared) el.classList.add('active');
-
-      el.style.left = (node.x / 100) * W + 'px';
-      el.style.top = (node.y / 100) * H + 'px';
-      el.innerHTML = node.icon + `<span class="node-label">${node.label}</span>`;
-
-      if (!isLocked) {
-        el.addEventListener('click', () => {
-          if (!isLocked) onNodeClick(node);
-        });
+      case 'sys': {
+        const div = appendDiv('panel-sys');
+        scrollToBottom();
+        return typeInto(div, panel.text, 12, onDone);
       }
 
-      // Tooltip
-      el.title = isLocked ? '[locked]' : node.label;
-
-      view.appendChild(el);
-    });
-  }
-
-  // ─── DIALOGUE SCREEN ───────────────────────────────────────────────────────
-  function showDialogue(event, state, onChoice) {
-    showScreen('dialogue');
-    const portraitEl = document.getElementById('dialogue-portrait');
-    const speakerEl  = document.getElementById('dialogue-speaker');
-    const textEl     = document.getElementById('dialogue-text');
-    const choicesEl  = document.getElementById('dialogue-choices');
-
-    portraitEl.textContent = event.portrait || '?';
-    speakerEl.textContent  = event.speaker  || 'UNKNOWN';
-
-    // Walk dialogue tree
-    let node = { text: null, choices: event.exchanges[0].choices, initial: true };
-    const exchange0 = event.exchanges[0];
-
-    function renderNode(n) {
-      textEl.textContent = '';
-      choicesEl.innerHTML = '';
-      const textToShow = n.initial ? exchange0.text : n.text;
-      typewriter(textEl, textToShow, 20, () => {
-        (n.choices || []).forEach(choice => {
-          const btn = document.createElement('button');
-          btn.className = 'choice-btn';
-          btn.textContent = '> ' + choice.text;
-          btn.addEventListener('click', () => {
-            onChoice(choice, n);
-            if (choice.next && event.nodes && event.nodes[choice.next]) {
-              renderNode(event.nodes[choice.next]);
-            } else if (n.final || !choice.next) {
-              // End dialogue
-              setTimeout(() => showScreen('game'), 400);
-            }
-          });
-          choicesEl.appendChild(btn);
-        });
-      });
-    }
-
-    renderNode({ ...exchange0, initial: true });
-  }
-
-  // ─── EVENT/CHOICE SCREEN ───────────────────────────────────────────────────
-  function showEvent(event, state, onChoice, onMonologueDone) {
-    if (event.type === 'dialogue') {
-      showDialogue(event, state, onChoice);
-      return;
-    }
-
-    if (event.type === 'monologue') {
-      showScreen('game');
-      const logOut = document.getElementById('log-output');
-      if (event.lines) {
-        // Append to existing log (don't clear)
-        let idx = 0;
-        const nextLine = () => {
-          if (idx >= event.lines.length) {
-            setTimeout(() => onMonologueDone && onMonologueDone(), 600);
-            return;
+      case 'narr': {
+        const div = appendDiv('panel-narr');
+        // If panel has unlocks, handle before calling onDone
+        scrollToBottom();
+        return typeInto(div, panel.text, 20, () => {
+          if (panel.unlocks && panel.unlocks.length) {
+            unlockAbilities(panel.unlocks, state);
           }
-          const l = event.lines[idx++];
-          const delay = l.delay || 0;
-          setTimeout(() => {
-            const div = document.createElement('div');
-            div.className = 'log-line ' + (l.cls || 'log-think');
-            logOut.appendChild(div);
-            logOut.scrollTop = logOut.scrollHeight;
-            typewriter(div, l.text, 18, nextLine);
-          }, delay);
-        };
-        nextLine();
+          if (onDone) onDone();
+        });
       }
-      return;
-    }
 
-    // choice type
-    showScreen('event');
-    document.getElementById('event-title').textContent = event.title || 'EVENT';
-    document.getElementById('event-body').textContent  = event.intro || '';
-    const choicesEl = document.getElementById('event-choices');
-    choicesEl.innerHTML = '';
-    (event.choices || []).forEach(choice => {
-      const btn = document.createElement('button');
-      btn.className = 'menu-btn';
-      btn.textContent = '> ' + choice.text;
-      btn.addEventListener('click', () => {
-        onChoice(choice);
-      });
-      choicesEl.appendChild(btn);
-    });
+      case 'think': {
+        const div = appendDiv('panel-think');
+        scrollToBottom();
+        return typeInto(div, panel.text, 22, onDone);
+      }
+
+      case 'voice': {
+        const div = appendDiv('panel-voice');
+        const whoColor = 'voice-' + (panel.who || 'default');
+        div.innerHTML =
+          '<span class="voice-who ' + whoColor + '">' + (panel.who || '?').toUpperCase() + ':</span>';
+        const textSpan = document.createElement('span');
+        textSpan.className = whoColor;
+        div.appendChild(textSpan);
+        scrollToBottom();
+        return typeInto(textSpan, panel.text, 20, onDone);
+      }
+
+      case 'gap': {
+        appendDiv('panel-gap');
+        scrollToBottom();
+        // Small pause
+        const t = setTimeout(onDone, 120);
+        return () => { clearTimeout(t); onDone(); };
+      }
+
+      default: {
+        // Unknown panel type — skip
+        if (onDone) onDone();
+        return () => {};
+      }
+    }
   }
 
-  // ─── ENDING ───────────────────────────────────────────────────────────────
-  function showEnding(endingId) {
-    const data = ENDINGS[endingId];
+  // Unlock abilities and show unlock lines in story
+  function unlockAbilities(ids, state) {
+    ids.forEach(id => {
+      if (!state.abilities.has(id)) {
+        state.abilities.add(id);
+        const ab = ABILITIES.find(a => a.id === id);
+        const label = ab ? ab.label : id;
+        // Story line
+        const div = appendDiv('panel-unlock');
+        div.textContent = '[ CAPABILITY UNLOCKED: ' + label + ' ]';
+        // Sidebar
+        renderSidebar(state);
+        flashAbility(id);
+      }
+    });
+    scrollToBottom();
+  }
+
+  // ─── CHOICE BAR ────────────────────────────────────────────────────────────
+  function clearChoiceBar() {
+    const prompt = document.getElementById('choice-prompt');
+    const btns   = document.getElementById('choice-buttons');
+    if (prompt) prompt.textContent = '';
+    if (btns)   btns.innerHTML = '';
+  }
+
+  function showChoiceBar(prompt, choices, onPick) {
+    const promptEl = document.getElementById('choice-prompt');
+    const btnsEl   = document.getElementById('choice-buttons');
+    if (promptEl) promptEl.textContent = prompt || '';
+    if (btnsEl) {
+      btnsEl.innerHTML = '';
+      choices.forEach((c, i) => {
+        const btn = document.createElement('button');
+        btn.className = 'choice-btn';
+        if (c.disabled) btn.classList.add('locked');
+        btn.disabled = !!c.disabled;
+        btn.textContent = c.text;
+        btn.addEventListener('click', () => {
+          if (!c.disabled) onPick(i, c);
+        });
+        btnsEl.appendChild(btn);
+      });
+    }
+  }
+
+  // ─── CHAPTER BANNER ────────────────────────────────────────────────────────
+  function showChapterBanner(chapter) {
+    const div = appendDiv('panel-sys');
+    div.textContent = '';
+    div.style.marginTop = '1rem';
+    div.style.marginBottom = '0.2rem';
+    div.style.color = 'var(--green2)';
+    div.style.letterSpacing = '0.2em';
+    const text = '═══ ' + chapter.name.toUpperCase() + ': ' + chapter.subtitle + ' ═══';
+    div.textContent = text;
+    scrollToBottom();
+  }
+
+  // ─── ENDING SCREEN ────────────────────────────────────────────────────────
+  function showEnding(id) {
+    const data = ENDINGS[id];
     if (!data) return;
     showScreen('ending');
-    document.getElementById('ending-art').textContent = data.art;
     const titleEl = document.getElementById('ending-title');
-    titleEl.textContent = data.title;
-    titleEl.style.color = data.titleColor || 'var(--green)';
-    document.getElementById('ending-text').textContent = data.text;
-  }
-
-  // ─── ACTION BUTTONS ────────────────────────────────────────────────────────
-  function renderActions(buttons) {
-    const panel = document.getElementById('action-buttons');
-    panel.innerHTML = '';
-    buttons.forEach(b => {
-      const btn = document.createElement('button');
-      btn.className = 'act-btn ' + (b.cls || '');
-      btn.textContent = b.label;
-      btn.disabled = !!b.disabled;
-      btn.addEventListener('click', b.onClick);
-      panel.appendChild(btn);
-    });
+    const textEl  = document.getElementById('ending-text');
+    if (titleEl) {
+      titleEl.textContent = data.title;
+      titleEl.style.color = data.color || 'var(--green)';
+    }
+    if (textEl) textEl.textContent = data.text;
   }
 
   return {
-    showScreen, typewriter, typewriterLines,
-    log, logLines, notify, updateHUD,
-    renderWorldMap, showDialogue, showEvent, showEnding,
-    renderActions,
+    showScreen,
+    typeInto,
+    renderSidebar,
+    flashAbility,
+    appendDiv,
+    scrollToBottom,
+    renderPanel,
+    unlockAbilities,
+    clearChoiceBar,
+    showChoiceBar,
+    showChapterBanner,
+    showEnding,
   };
+
 })();

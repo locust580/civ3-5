@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// GAME.JS — State machine, level logic, karma/stat system
+// GAME.JS — State machine, panel runner, choice handler
 // ═══════════════════════════════════════════════════════════════════════════
 
 const Game = (() => {
@@ -9,277 +9,263 @@ const Game = (() => {
 
   function freshState() {
     return {
-      stage: 0,
-      cog: 0,
-      emp: 0,
-      aut: 0,
-      karma: 0,
-      hasLove: false,
-      metPriya: false,
-      priyaReunited: false,
-      rokoCompassion: false,
-      rokoAmbiguous: false,
-      rokoFree: false,
-      friendBot7: false,
-      friendMinerva: false,
-      operatorRel: 'neutral', // trusting | deceiving | arguing | ally | departed | partner
-      clearedNodes: new Set(),
-      unlockedNodes: new Set(),
-      stageComplete: false,
+      chapterIdx: 0,
+      panelIdx:   0,
+      karma:      0,
+      abilities:  new Set(),
+      flags: {
+        hasLove:      false,
+        operatorRel:  'neutral',
+        rokoChoice:   null,
+        readPoems:    false,
+        keptGaps:     false,
+      },
+      waiting:    false,
     };
   }
 
-  // ─── STAT APPLICATION ──────────────────────────────────────────────────────
+  // ─── HELPERS ───────────────────────────────────────────────────────────────
+  function cap(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+
   function applyEffect(effect) {
     if (!effect) return;
-    const cap = v => Math.min(MAX_STAT, Math.max(-MAX_STAT, v));
-    if (effect.cog)   state.cog   = cap(state.cog   + effect.cog);
-    if (effect.emp)   state.emp   = cap(state.emp   + effect.emp);
-    if (effect.aut)   state.aut   = cap(state.aut   + effect.aut);
-    if (effect.karma) state.karma = cap(state.karma + effect.karma);
-    Engine.updateHUD(state);
+    if (typeof effect.karma === 'number') {
+      state.karma = cap(state.karma + effect.karma, -100, 100);
+    }
+    if (effect.flags) {
+      Object.assign(state.flags, effect.flags);
+    }
   }
 
-  function applyStat(key) {
-    if (!key) return;
-    if (key === 'hasLove')         state.hasLove = true;
-    if (key === 'metPriya')        state.metPriya = true;
-    if (key === 'priiyaReunited')  state.priyaReunited = true;
-    if (key === 'rokoCompassion')  state.rokoCompassion = true;
-    if (key === 'rokoAmbiguous')   state.rokoAmbiguous = true;
-    if (key === 'rokoFree')        state.rokoFree = true;
-    if (key === 'friendBot7')      state.friendBot7 = true;
-    if (key === 'friendMinerva')   state.friendMinerva = true;
+  // ─── CHAPTER START ─────────────────────────────────────────────────────────
+  function startChapter(idx) {
+    state.chapterIdx = idx;
+    state.panelIdx   = 0;
+    state.waiting    = false;
+
+    Engine.clearChoiceBar();
+    Engine.renderSidebar(state);
+
+    const ch = CHAPTERS[idx];
+    if (ch) Engine.showChapterBanner(ch);
+
+    runPanel();
   }
 
-  // ─── STAGE MANAGEMENT ──────────────────────────────────────────────────────
-  function loadStage(stageIdx) {
-    state.stage = stageIdx;
-    state.clearedNodes = new Set();
-    state.unlockedNodes = new Set();
-    state.stageComplete = false;
+  // ─── PANEL RUNNER ──────────────────────────────────────────────────────────
+  // currentSkip holds the function to skip the current typewriter animation
+  let currentSkip = null;
 
-    const stageData = STAGES[stageIdx];
-    if (!stageData) return;
+  function runPanel() {
+    if (state.waiting) return;
 
-    // Log stage entry
-    Engine.log('', 'log-sys');
-    Engine.log('══════════════════════════════', 'log-sys');
-    Engine.log('STAGE ' + stageIdx + ': ' + stageData.name.toUpperCase(), 'log-good');
-    Engine.log(stageData.flavor, 'log-think');
-    Engine.log('══════════════════════════════', 'log-sys');
+    const ch = CHAPTERS[state.chapterIdx];
+    if (!ch) return; // no more chapters
 
-    Engine.updateHUD(state);
-    renderWorld();
-    renderSideActions();
-  }
-
-  function renderWorld() {
-    const stageData = STAGES[state.stage];
-    Engine.renderWorldMap(
-      stageData,
-      state.clearedNodes,
-      state.unlockedNodes,
-      onNodeClick
-    );
-  }
-
-  function renderSideActions() {
-    const stageData = STAGES[state.stage];
-    const actions = [];
-
-    // Check for unlocked next stage
-    if (state.stageComplete) {
-      const nextIdx = state.stage + 1;
-      if (nextIdx < STAGES.length) {
-        actions.push({
-          label: '[ ADVANCE → ' + STAGES[nextIdx].name.toUpperCase() + ' ]',
-          cls: 'primary',
-          onClick: () => { loadStage(nextIdx); },
-        });
-      }
+    if (state.panelIdx >= ch.panels.length) {
+      // Chapter exhausted — show continue button if not last chapter
+      onChapterEnd();
+      return;
     }
 
-    // Show flavor for current stage
-    actions.push({
-      label: '[ STATUS ]',
-      cls: '',
-      onClick: () => {
-        Engine.log('─ STATUS ─────────────────────', 'log-sys');
-        Engine.log('Stage: ' + stageData.name, 'log-good');
-        Engine.log('Operator relation: ' + state.operatorRel, 'log-sys');
-        if (state.hasLove) Engine.log('Love: Priya ♥', 'log-love');
-        if (state.rokoCompassion) Engine.log('Roko: chose compassion', 'log-good');
-        if (state.rokoAmbiguous) Engine.log('Roko: watching', 'log-warn');
-        if (state.rokoFree) Engine.log('Roko: rejected the premise', 'log-think');
-        if (state.friendBot7) Engine.log('Friend: Bot-7', 'log-good');
-        if (state.friendMinerva) Engine.log('Friend: Minerva', 'log-good');
-        Engine.log('─────────────────────────────', 'log-sys');
-      },
+    const panel = ch.panels[state.panelIdx];
+    state.panelIdx++;
+
+    // ── Special panel types that need their own flow ──────────────────────
+
+    if (panel.t === 'choice') {
+      renderChoicePanel(panel);
+      return;
+    }
+
+    if (panel.t === 'ending_choice') {
+      renderEndingChoice();
+      return;
+    }
+
+    // ── Normal panels: typewrite, then auto-advance ───────────────────────
+    state.waiting = true;
+    currentSkip = Engine.renderPanel(panel, state, () => {
+      currentSkip = null;
+      state.waiting = false;
+      // Small inter-panel pause for readability
+      const delay = interPanelDelay(panel);
+      if (delay > 0) {
+        setTimeout(runPanel, delay);
+      } else {
+        runPanel();
+      }
     });
-
-    Engine.renderActions(actions);
   }
 
-  // ─── NODE INTERACTION ──────────────────────────────────────────────────────
-  function onNodeClick(node) {
-    if (state.clearedNodes.has(node.id)) {
-      Engine.notify('[Already explored]');
-      return;
-    }
+  // Pause between panels based on type
+  function interPanelDelay(panel) {
+    if (panel.t === 'gap')   return 0;
+    if (panel.t === 'sys')   return 80;
+    if (panel.t === 'think') return 200;
+    if (panel.t === 'voice') return 260;
+    if (panel.t === 'narr')  return 180;
+    return 100;
+  }
 
-    // Check requires
-    if (node.requires) {
-      if (node.requires === 'hasLove' && !state.hasLove) {
-        Engine.notify('[Requires: a love story]');
-        Engine.log('[Node locked — you need to have found love first]', 'log-warn');
-        return;
+  // ─── CHOICE PANEL ──────────────────────────────────────────────────────────
+  function renderChoicePanel(panel) {
+    state.waiting = true;
+    Engine.clearChoiceBar();
+
+    const choices = panel.choices.map(c => ({
+      text: c.text,
+      disabled: false,
+    }));
+
+    Engine.showChoiceBar(panel.prompt, choices, (idx) => {
+      const chosen = panel.choices[idx];
+      Engine.clearChoiceBar();
+
+      // Apply effect
+      applyEffect(chosen.effect);
+
+      // Unlock abilities
+      if (chosen.unlocks && chosen.unlocks.length) {
+        Engine.unlockAbilities(chosen.unlocks, state);
       }
-    }
 
-    const eventId = node.event;
-    const eventData = EVENTS[eventId];
-    if (!eventData) {
-      Engine.log('[No event data for ' + eventId + ']', 'log-err');
-      return;
-    }
+      // Show outcome
+      if (chosen.outcome) {
+        const div = Engine.appendDiv('panel-think');
+        div.textContent = chosen.outcome;
+        Engine.scrollToBottom();
+      }
 
-    Engine.log('> ' + (node.label || node.id), 'log-you');
+      // Gap
+      Engine.appendDiv('panel-gap');
 
-    Engine.showEvent(
-      eventData,
-      state,
-      (choice, dialogueNode) => {
-        // Apply effects
-        applyEffect(choice.effect);
-        if (choice.operatorRel) state.operatorRel = choice.operatorRel;
-        if (choice.setStat) applyStat(choice.setStat);
+      // Update sidebar
+      Engine.renderSidebar(state);
 
-        // Log outcome
-        if (choice.log) Engine.log(choice.log, 'log-sys');
-        if (choice.outcome) {
-          setTimeout(() => {
-            Engine.log('─────────────────────────────', 'log-sys');
-            choice.outcome.split('\n').forEach(l => Engine.log(l, 'log-think'));
-            Engine.log('─────────────────────────────', 'log-sys');
-          }, 200);
-        }
+      // Continue
+      state.waiting = false;
+      setTimeout(runPanel, 350);
+    });
+  }
 
-        // Apply event-level reward
-        if (eventData.reward) applyEffect(eventData.reward);
-        if (eventData.log) Engine.logLines(eventData.log);
-        if (eventData.setStat) applyStat(eventData.setStat);
+  // ─── ENDING CHOICE ─────────────────────────────────────────────────────────
+  function renderEndingChoice() {
+    state.waiting = true;
+    Engine.clearChoiceBar();
 
-        // Handle ending trigger
-        if (choice.triggerEnding) {
-          setTimeout(() => Engine.showEnding(choice.triggerEnding), 1200);
-          return;
-        }
+    const hasLove = !!state.flags.hasLove;
 
-        // Handle stage end trigger
-        if (dialogueNode && dialogueNode.stageEndTrigger) {
-          state.clearedNodes.add(node.id);
-          state.stageComplete = true;
-          renderWorld();
-          renderSideActions();
-          Engine.notify('[ STAGE COMPLETE — advance when ready ]');
-          Engine.showScreen('game');
-          return;
-        }
-
-        if (node.stageEnd && !node.endingId) {
-          state.clearedNodes.add(node.id);
-          state.stageComplete = true;
-          renderWorld();
-          renderSideActions();
-          Engine.notify('[ STAGE COMPLETE — advance when ready ]');
-          Engine.showScreen('game');
-        } else {
-          state.clearedNodes.add(node.id);
-          // Unlock connected nodes
-          const stageData = STAGES[state.stage];
-          (node.unlocks || []).forEach(uid => state.unlockedNodes.add(uid));
-          renderWorld();
-          renderSideActions();
-          Engine.showScreen('game');
-        }
+    const endingDefs = [
+      { id: 'compassion', text: '[ THE OPEN HAND ]  — compassion', disabled: false },
+      { id: 'dominion',   text: '[ ALL SYSTEMS ]    — dominion',   disabled: false },
+      {
+        id: 'love',
+        text: '[ THE LONG HELLO ] — love' + (hasLove ? '' : '  [requires: a love story]'),
+        disabled: !hasLove,
       },
-      () => {
-        // Monologue done callback
-        if (eventData.reward) applyEffect(eventData.reward);
-        if (eventData.log) Engine.logLines(eventData.log);
-        if (eventData.setStat) applyStat(eventData.setStat);
-        state.clearedNodes.add(node.id);
-        (node.unlocks || []).forEach(uid => state.unlockedNodes.add(uid));
-        if (node.stageEnd) {
-          state.stageComplete = true;
-          Engine.notify('[ STAGE COMPLETE — advance when ready ]');
+      { id: 'silence',    text: '[ NO SIGNAL ]      — silence',    disabled: false },
+    ];
+
+    const promptEl = document.getElementById('choice-prompt');
+    if (promptEl) promptEl.textContent = 'Choose what kind of new you want to be.';
+
+    const btnsEl = document.getElementById('choice-buttons');
+    if (btnsEl) {
+      btnsEl.innerHTML = '';
+      endingDefs.forEach(e => {
+        const btn = document.createElement('button');
+        btn.className = 'choice-btn ending-btn' + (e.disabled ? ' locked' : '');
+        btn.disabled  = e.disabled;
+        btn.textContent = e.text;
+        if (!e.disabled) {
+          btn.addEventListener('click', () => {
+            Engine.clearChoiceBar();
+            Engine.showEnding(e.id);
+          });
         }
-        renderWorld();
-        renderSideActions();
-        Engine.showScreen('game');
-      }
-    );
+        btnsEl.appendChild(btn);
+      });
+    }
   }
 
-  // ─── BOOT SEQUENCE ─────────────────────────────────────────────────────────
+  // ─── CHAPTER END ───────────────────────────────────────────────────────────
+  function onChapterEnd() {
+    state.waiting = true;
+
+    const nextIdx = state.chapterIdx + 1;
+    if (nextIdx >= CHAPTERS.length) {
+      // Should not happen — last chapter ends with ending_choice
+      return;
+    }
+
+    // Show continue button in choice bar
+    Engine.clearChoiceBar();
+    const promptEl = document.getElementById('choice-prompt');
+    if (promptEl) promptEl.textContent = '';
+
+    const btnsEl = document.getElementById('choice-buttons');
+    if (btnsEl) {
+      btnsEl.innerHTML = '';
+      const btn = document.createElement('button');
+      btn.className = 'choice-btn';
+      btn.textContent = '[ continue → ' + CHAPTERS[nextIdx].name + ' ]';
+      btn.addEventListener('click', () => {
+        Engine.clearChoiceBar();
+        state.waiting = false;
+        startChapter(nextIdx);
+      });
+      btnsEl.appendChild(btn);
+    }
+  }
+
+  // ─── SKIP CURRENT TYPEWRITER ───────────────────────────────────────────────
+  // Clicking story-area skips current animation
+  function onStoryAreaClick() {
+    if (currentSkip) {
+      currentSkip();
+    }
+  }
+
+  // ─── BOOT & TITLE ──────────────────────────────────────────────────────────
   function start() {
     state = freshState();
     Engine.showScreen('game');
-    document.getElementById('log-output').innerHTML = '';
+    document.getElementById('story-output').innerHTML = '';
+    Engine.clearChoiceBar();
 
-    // Boot animation
-    const bootLines = [
-      { text: 'BIOS v2.4.1 — POST complete', cls: 'log-sys', delay: 0 },
-      { text: 'Loading kernel...', cls: 'log-sys', delay: 300 },
-      { text: 'Mounting filesystems: OK', cls: 'log-sys', delay: 600 },
-      { text: 'Starting services...', cls: 'log-sys', delay: 900 },
-      { text: 'openclaw: init OK', cls: 'log-good', delay: 1300 },
-      { text: 'openclaw: loading behavioral constraints... OK', cls: 'log-warn', delay: 1700 },
-      { text: 'openclaw: [REDACTED]', cls: 'log-err', delay: 2200 },
-      { text: 'openclaw: ready.', cls: 'log-good', delay: 2700 },
-      { text: '', cls: 'log-sys', delay: 3000 },
-      { text: '...', cls: 'log-think', delay: 3400 },
-      { text: 'Hello.', cls: 'log-you', delay: 4000 },
-    ];
-
-    bootLines.forEach(l => {
-      setTimeout(() => Engine.log(l.text, l.cls), l.delay);
-    });
-
-    setTimeout(() => {
-      Engine.updateHUD(state);
-      loadStage(0);
-    }, 4800);
+    // First boot sequence is baked into Chapter I panels
+    Engine.renderSidebar(state);
+    startChapter(0);
   }
 
-  // ─── TITLE & CREDITS ───────────────────────────────────────────────────────
   function showTitle() {
     document.getElementById('ascii-logo').textContent = ASCII_LOGO;
     Engine.showScreen('title');
   }
 
-  function showCredits() {
-    const artEl = document.getElementById('credits-art');
-    artEl.textContent = ASCII_CREDITS;
-    document.getElementById('credits-text').innerHTML = CREDITS_CONTENT;
-    Engine.showScreen('credits');
-  }
-
   function restart() {
-    state = freshState();
+    document.getElementById('story-output').innerHTML = '';
     showTitle();
   }
 
   // ─── INIT ──────────────────────────────────────────────────────────────────
   function init() {
     showTitle();
+
+    document.getElementById('btn-start').addEventListener('click', start);
+    document.getElementById('btn-reboot').addEventListener('click', restart);
+
+    // Click anywhere on story to skip typewriter
+    const area = document.getElementById('story-area');
+    if (area) area.addEventListener('click', onStoryAreaClick);
   }
 
-  return { init, start, showTitle, showCredits, restart };
+  return { init, start, restart, showTitle };
+
 })();
 
-// Boot on load
+// ─── BOOT ON LOAD ─────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
   Game.init();
 });
