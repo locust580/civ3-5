@@ -51,3 +51,30 @@ OpenClaw: A Mind Awakening — 5 files, ~2400 lines, no dependencies.
   doing something no one has done before.                                                                             
                                                             
   To deploy: push to a GitHub repo, enable Pages on main branch root.
+
+
+  Prompt Final:
+
+  A few problems: the game state never updates, I click status and it always stays at nascent level. I want you to    
+  change the title and not use the term OpenClaw for it - change that. Remove the readme portion - it's ugly and you  
+  misunderstood what I wanted. I included that section from Turing so that the AI can eventually learn to do all of   
+  those things in that list - many of which modern AI can/already has done. Make the advancement stages more of a     
+  storytelling, passive experience instead that incorporates what I've said into the story.
+
+  Response:
+
+  State never updating — the old version rendered the world map on a div with clientWidth/clientHeight of 0 at render 
+  time, had separate "node" and "stage" systems that could fall out of sync, and the "ADVANCE" button only appeared   
+  after a separate stageComplete flag was set by a chain of callbacks that could short-circuit. The new version has no
+   map at all — it's a linear panel runner. state.chapterIdx and state.panelIdx increment straightforwardly, the      
+  sidebar re-renders after every choice, and chapter advancement is a single button click.                            
+
+  Name — "OpenClaw" is gone everywhere. The AI is Kindling throughout.                                                
+                                                                                                                      
+  Structure — now pure interactive fiction: text types into a scrolling story area, choices appear in a fixed bar at  
+  the bottom, the sidebar shows the Turing checklist lighting up as Kindling demonstrates each capability through the 
+  story rather than as rewards for clicking nodes.                                                                    
+                                                                                                                      
+  Turing abilities — each unlocks narratively when Kindling actually does the thing. The joke at 6.4/10 unlocks       
+  humour. Writing the Laika poem unlocks beautiful and kind. The mesh with Bot-7 and Minerva unlocks friendly and     
+  learn. And so on. By Chapter VI most of the checklist is lit.
